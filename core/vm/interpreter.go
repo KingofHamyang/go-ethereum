@@ -216,6 +216,14 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool, i
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
+		if isMining {
+			// check map for storage and function call while mining
+			fmt.Println(op.String())
+		}
+
+		// if op.String() == "SSTORE" || op.String() == "SLOAD" {
+		// 	fmt.Println(op.String())
+		// }
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, &ErrInvalidOpCode{opcode: op}
