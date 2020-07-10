@@ -85,6 +85,7 @@ func New(eth Backend, config *Config, chainConfig *params.ChainConfig, mux *even
 // the loop is exited. This to prevent a major security vuln where external parties can DOS you with blocks
 // and halt your mining operation for as long as the DOS continues.
 func (miner *Miner) update() {
+	fmt.Printf("Miner Address %p \n", &miner)
 	events := miner.mux.Subscribe(downloader.StartEvent{}, downloader.DoneEvent{}, downloader.FailedEvent{})
 	defer events.Unsubscribe()
 

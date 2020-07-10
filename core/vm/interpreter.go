@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"fmt"
 	"hash"
 	"sync/atomic"
 
@@ -47,7 +48,7 @@ type Config struct {
 type Interpreter interface {
 	// Run loops and evaluates the contract's code with the given input data and returns
 	// the return byte-slice and an error if one occurred.
-	Run(contract *Contract, input []byte, static bool) ([]byte, error)
+	Run(contract *Contract, input []byte, static bool, isMining bool) ([]byte, error)
 	// CanRun tells if the contract, passed as an argument, can be
 	// run by the current interpreter. This is meant so that the
 	// caller can do something like:
@@ -138,8 +139,16 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // It's important to note that any errors returned by the interpreter should be
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
-func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool, isMining bool) (ret []byte, err error) {
+	if isMining {
+		fmt.Println("ApplyTransaction for Mining")
+		fmt.Println("address of map %p", &in.evm.sloadCount)
 
+	} else {
+		fmt.Println("Not mining")
+		fmt.Println("address of map %p", &in.evm.sloadCount)
+
+	}
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
 	defer func() { in.evm.depth-- }()
@@ -213,6 +222,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
+
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, &ErrInvalidOpCode{opcode: op}
@@ -275,6 +285,20 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, returns, contract, in.evm.depth, err)
 			logged = true
 		}
+		// get access address and key from stack
+		// if op.String() == "SSTORE" || op.String() == "SLOAD" {
+		// 	address := callContext.contract.Address().String()
+		// 	hash := common.Hash(callContext.stack.peek().Bytes32()).String()
+		// 	key := address + hash
+
+		// 	var m map[string]int = *(in.evm.sloadCount)
+		// 	m[key] = m[key] + 1
+
+		// 	fmt.Println(op.String() + " -> address : " + callContext.contract.Address().String() + " Key : " + hash)
+		// 	for key, element := range m {
+		// 		fmt.Println("Key:", key, "=>", "Element:", element)
+		// 	}
+		// }
 
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)

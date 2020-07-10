@@ -19,6 +19,7 @@ package miner
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -122,11 +123,13 @@ type intervalAdjust struct {
 // worker is the main object which takes care of submitting new work to consensus engine
 // and gathering the sealing result.
 type worker struct {
-	config      *Config
-	chainConfig *params.ChainConfig
-	engine      consensus.Engine
-	eth         Backend
-	chain       *core.BlockChain
+	sloadCallMap  map[string]int
+	sstoreCallMap map[string]int
+	config        *Config
+	chainConfig   *params.ChainConfig
+	engine        consensus.Engine
+	eth           Backend
+	chain         *core.BlockChain
 
 	// Feeds
 	pendingLogsFeed event.Feed
@@ -188,6 +191,8 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
+		sloadCallMap:       make(map[string]int),
+		sstoreCallMap:      make(map[string]int),
 		config:             config,
 		chainConfig:        chainConfig,
 		engine:             engine,
@@ -210,6 +215,8 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 	}
+	fmt.Printf("Worker ADdress in newWorker %p", &worker)
+
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
 	// Subscribe events for blockchain
@@ -427,6 +434,7 @@ func (w *worker) mainLoop() {
 	for {
 		select {
 		case req := <-w.newWorkCh:
+			fmt.Println("commitNewWork of newWorkCh")
 			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 
 		case ev := <-w.chainSideCh:
@@ -490,7 +498,8 @@ func (w *worker) mainLoop() {
 				}
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
 				tcount := w.current.tcount
-				w.commitTransactions(txset, coinbase, nil)
+				fmt.Println("Test Transactions in js console")
+				w.commitTransactions(txset, coinbase, nil, false)
 				// Only update the snapshot if any new transactons were added
 				// to the pending block
 				if tcount != w.current.tcount {
@@ -501,6 +510,8 @@ func (w *worker) mainLoop() {
 				// submit mining work here since all empty submission will be rejected
 				// by clique. Of course the advance sealing(empty submission) is disabled.
 				if w.chainConfig.Clique != nil && w.chainConfig.Clique.Period == 0 {
+					fmt.Println("commitNewWork for Test")
+
 					w.commitNewWork(nil, true, time.Now().Unix())
 				}
 			}
@@ -714,10 +725,11 @@ func (w *worker) updateSnapshot() {
 	w.snapshotState = w.current.state.Copy()
 }
 
-func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
+func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address, isMining bool) ([]*types.Log, error) {
+	fmt.Printf("Worker Address %p", &w)
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), isMining, &w.sstoreCallMap, &w.sloadCallMap)
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
@@ -728,7 +740,7 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 	return receipt.Logs, nil
 }
 
-func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) bool {
+func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32, isMining bool) bool {
 	// Short circuit if current is nil
 	if w.current == nil {
 		return true
@@ -785,9 +797,10 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			continue
 		}
 		// Start executing the transaction
+		fmt.Println("start to executing the atomic trasactions")
 		w.current.state.Prepare(tx.Hash(), common.Hash{}, w.current.tcount)
 
-		logs, err := w.commitTransaction(tx, coinbase)
+		logs, err := w.commitTransaction(tx, coinbase, isMining)
 		switch err {
 		case core.ErrGasLimitReached:
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -867,6 +880,8 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
 	}
+	fmt.Println("parent Block : " + num.String())
+
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
 	if w.isRunning() {
 		if w.coinbase == (common.Address{}) {
@@ -957,13 +972,13 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
+		if w.commitTransactions(txs, w.coinbase, interrupt, true) {
 			return
 		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
+		if w.commitTransactions(txs, w.coinbase, interrupt, true) {
 			return
 		}
 	}
