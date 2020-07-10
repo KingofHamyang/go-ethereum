@@ -123,11 +123,13 @@ type intervalAdjust struct {
 // worker is the main object which takes care of submitting new work to consensus engine
 // and gathering the sealing result.
 type worker struct {
-	config      *Config
-	chainConfig *params.ChainConfig
-	engine      consensus.Engine
-	eth         Backend
-	chain       *core.BlockChain
+	sloadCallMap  map[string]int
+	sstoreCallMap map[string]int
+	config        *Config
+	chainConfig   *params.ChainConfig
+	engine        consensus.Engine
+	eth           Backend
+	chain         *core.BlockChain
 
 	// Feeds
 	pendingLogsFeed event.Feed
@@ -189,6 +191,8 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
+		sloadCallMap:       make(map[string]int),
+		sstoreCallMap:      make(map[string]int),
 		config:             config,
 		chainConfig:        chainConfig,
 		engine:             engine,
@@ -211,6 +215,8 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 	}
+	fmt.Printf("Worker ADdress in newWorker %p", &worker)
+
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
 	// Subscribe events for blockchain
@@ -720,9 +726,10 @@ func (w *worker) updateSnapshot() {
 }
 
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address, isMining bool) ([]*types.Log, error) {
+	fmt.Printf("Worker Address %p", &w)
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), isMining)
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), isMining, &w.sstoreCallMap, &w.sloadCallMap)
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err

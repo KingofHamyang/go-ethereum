@@ -133,12 +133,14 @@ type EVM struct {
 	// applied in opCall*.
 	callGasTemp uint64
 	// check whether this EVM is for mining or not
-	isMining bool
+	isMining    bool
+	sloadCount  *map[string]int
+	sstoreCount *map[string]int
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
 // only ever be used *once*.
-func NewEVM(ctx Context, statedb StateDB, chainConfig *params.ChainConfig, vmConfig Config, isMining bool) *EVM {
+func NewEVM(ctx Context, statedb StateDB, chainConfig *params.ChainConfig, vmConfig Config, isMining bool, sloadCount *map[string]int, sstoreCount *map[string]int) *EVM {
 	evm := &EVM{
 		Context:      ctx,
 		StateDB:      statedb,
@@ -147,6 +149,8 @@ func NewEVM(ctx Context, statedb StateDB, chainConfig *params.ChainConfig, vmCon
 		chainRules:   chainConfig.Rules(ctx.BlockNumber),
 		interpreters: make([]Interpreter, 0, 1),
 		isMining:     isMining,
+		sstoreCount:  sstoreCount,
+		sloadCount:   sloadCount,
 	}
 
 	if chainConfig.IsEWASM(ctx.BlockNumber) {
